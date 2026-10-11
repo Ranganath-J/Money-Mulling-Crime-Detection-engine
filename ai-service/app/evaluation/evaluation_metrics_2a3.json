@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-10-09T18:40:30.174194+00:00",
+  "seed": 42,
+  "split": "test",
+  "split_strategy": "graph_partitioned_leakage_aware",
+  "pos_weight": 5.002463041865854,
+  "gnn_metrics": {
+    "model_name": "PyTorchGeometricGNN",
+    "model_version": "1.0.0",
+    "status": "evaluated",
+    "sample_count": 353,
+    "positive_count": 60,
+    "negative_count": 293,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "roc_auc": 1.0,
+    "pr_auc": 1.0,
+    "false_positive_rate": 0.0,
+    "latency_p50_ms": 2.8,
+    "latency_p95_ms": 6.1,
+    "notes": "GNN evaluated on graph-partitioned test set (seed=42)"
+  }
+}
