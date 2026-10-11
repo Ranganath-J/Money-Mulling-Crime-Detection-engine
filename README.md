@@ -25,6 +25,7 @@ This repository branch (`feature/ml-service`) implements the complete **Person 2
 5. [Measured Model Benchmark Results](#5-measured-model-benchmark-results)
 6. [How to Run, Test, and Verify Locally](#6-how-to-run-test-and-verify-locally)
 7. [API Endpoint Usage Examples](#7-api-endpoint-usage-examples)
+8. [CSV Network Analysis](#8-csv-network-analysis)
 
 ---
 
@@ -73,6 +74,7 @@ The AI service operates as a high-performance Python FastAPI microservice that a
 |---|---|
 | [`README.md`](file:///c:/Users/Admin/Desktop/Money-Mulling-Crime-Detection-engine/README.md) | **Master Documentation**: Comprehensive overview of the system, complete file-by-file explanations, architecture diagrams, training instructions, and API contracts. |
 | [`.gitignore`](file:///c:/Users/Admin/Desktop/Money-Mulling-Crime-Detection-engine/.gitignore) | **Git Ignore Manifest**: Prevents temporary files, caches (`__pycache__`, `.pytest_cache`, `.coverage`), environment configs (`.env`), virtual environments (`.venv`), and `node_modules` from cluttering source control. |
+| [`frontend/`](./frontend/) | **React/Vite Dashboard**: Contains the frontend source (`src/`), static files (`public/`), npm manifests, Vite and TypeScript configuration, and the frontend environment template. |
 
 ---
 
@@ -238,6 +240,84 @@ Measured on strictly partitioned, leakage-free test sets:
 
 ## 6. How to Run, Test, and Verify Locally
 
+### Run the Whole Project (PowerShell, Three Terminals)
+
+Install Node.js 20+, Python 3.10–3.14, and Docker Desktop. Configure a local database password:
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
+notepad .env
+notepad backend\.env
+```
+Set `POSTGRES_PASSWORD` in the root `.env` to a long random hex password and use the same value in `backend\.env`'s `DATABASE_URL`. A hex password is URL-safe; keep the `money_muling` user and database shown in the backend template. Start Docker Desktop, then start the database from the repository root:
+```powershell
+docker compose up -d postgres
+docker compose ps
+```
+Wait until the `postgres` container is healthy. The backend creates the application transaction table and indexes on startup.
+
+Run each service in its own PowerShell terminal from the repository root.
+
+**Terminal 1 — AI service** (create the virtual environment and install dependencies once):
+```powershell
+cd ai-service
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+```
+
+**Terminal 2 — Node.js backend** (requires Node.js 20 or newer):
+```powershell
+cd backend
+npm ci
+npm run dev
+```
+
+**Terminal 3 — React frontend** (install dependencies once):
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the frontend URL printed by Vite (normally [http://localhost:5173](http://localhost:5173)). The backend health endpoint is [http://localhost:3000/health](http://localhost:3000/health), and the AI service health endpoint and interactive API docs are [http://localhost:8001/health](http://localhost:8001/health) and [http://localhost:8001/docs](http://localhost:8001/docs).
+
+The frontend development server proxies `/api` requests to the Node backend. Open **Live Transactions**, submit a transaction, and the backend will query account history, call the transaction, anomaly, and GNN prediction endpoints, combine available model scores using the documented 40/20/40 weights, persist the result in PostgreSQL, and return it to the UI. The dashboard reads persisted counts and recent transaction results and refreshes automatically. Service checks are at `http://localhost:3000/api/status`.
+
+Fusion uses the 40% transaction classifier, 20% behavioral anomaly, and 40% graph model weights. If one or more models are unavailable, the backend computes the weighted average from only available model scores and reports partial status; it never substitutes zero for a missing score. The dashboard labels this as a model-generated investigation priority, not a finding of wrongdoing. Its Monitor, Review, and Investigation Alert bands are below 40, 40–74.9, and 75 or higher. Expand a transaction's assessment details to see component scores, reasons, and any GNN network findings; graph findings are shown separately from the fused score.
+
+You can also verify the flow from PowerShell while the services are running:
+```powershell
+$payload = @{
+  senderAccountId = "ACC_DEMO_A"
+  receiverAccountId = "ACC_DEMO_B"
+  amount = 9500
+  currency = "USD"
+  channel = "wire"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/api/transactions -ContentType "application/json" -Body $payload
+Invoke-RestMethod -Uri http://127.0.0.1:3000/api/dashboard
+```
+
+If an individual model is unavailable, its component score remains `null`; available model scores are reweighted across only the models that returned a score. If all models are unavailable, the transaction is still recorded with a `null` final score and an explicit unavailable status. To stop PostgreSQL, run `docker compose down`; transaction data remains in its named volume. To also delete the database and all persisted transactions, run `docker compose down -v`. CSV Network Explorer is available for dataset analysis. Investigation Cases and Analytics remain placeholder pages; the project does not yet implement case management, analyst actions, or production authentication.
+
+### Run the React Frontend
+
+From the repository root, run these commands in PowerShell:
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+Open the local URL printed by Vite (normally [http://localhost:5173](http://localhost:5173)).
+
+To create a production build or run the frontend linter, use these commands from `frontend/`:
+```powershell
+npm run build
+npm run lint
+```
+
 ### Step 1: Activate Virtual Environment
 
 **In PowerShell (from repository root):**
@@ -351,6 +431,68 @@ python scripts/train_prompt_2a3.py
   ]
 }
 ```
+
+## 8. CSV Network Analysis
+
+The **Network Explorer** at `/network` uploads transaction datasets, validates each data row, assesses accepted transactions with the existing transaction classifier, behavioral anomaly detector and GNN, and runs separate deterministic graph rules. Accepted rows are inserted into the shared `transactions` table with channel `csv_import`, so they also appear in Live Transactions and the Operations dashboard. Existing records are not overwritten. A transaction ID already in the database or duplicated in the file is rejected with a row-specific reason.
+
+### CSV format and limits
+
+Upload a UTF-8 `.csv` file with these required headers. Header order is flexible; additional named columns are ignored.
+
+```csv
+transaction_id,sender_id,receiver_id,amount,timestamp
+TXN001,ACC_A,ACC_B,5000,2026-02-18 10:00:00
+```
+
+- Maximum file size: **10 MB**; maximum data rows: **5,000**.
+- Identifiers must be 1–120 characters and cannot contain control characters.
+- Amounts must be greater than zero, no more than 10,000,000, and have at most two decimal places. Imported currency defaults to USD.
+- Timestamps must be valid `YYYY-MM-DD HH:mm:ss` or ISO date-time values. A time without an explicit UTC offset is interpreted as UTC. The original timestamp text is retained in report edges, while normalized UTC instants are used for storage and ordering.
+- Unsupported encoding, malformed CSV, missing required headers, empty files, and oversized inputs are rejected before an analysis job is created. Data-row validation failures and duplicate IDs are retained in the report with CSV row numbers.
+- Uploads create isolated analysis IDs. Retrying the same file does not duplicate transaction records: IDs already present in the live ledger are reported as rejected rows.
+
+### Detection rules and interpretation
+
+All thresholds are included in the exported JSON under `thresholds`.
+
+| Finding | Initial rule |
+|---|---|
+| Circular routing | Directed cycle through 3–5 distinct accounts; canonical account ordering avoids rotational duplicates. Search is depth-limited and capped at 200 cycles / 1,000,000 traversal steps. |
+| Fan-in | At least 10 distinct senders transfer into an account within a rolling 72-hour window. Repeated transfers from one sender count as one counterparty. |
+| Fan-out | At least 10 distinct receivers receive funds from an account within a rolling 72-hour window. |
+| Rapid pass-through | An account forwards funds within 24 hours, with the outgoing amount within 20% of the incoming amount. |
+| Layered shell chain | At least 3 and at most 5 hops, with each intermediary demonstrating a time-near, comparable incoming/outgoing pair. Length alone is not sufficient. |
+| High-velocity transfers | At least 20 outgoing transfers or an aggregate outgoing amount of at least 100,000 within one hour. |
+
+Change the configurable defaults in `backend/.env` (see `backend/.env.example`) with `GRAPH_FAN_WINDOW_HOURS`, `GRAPH_FAN_COUNTERPARTY_THRESHOLD`, `GRAPH_PASS_THROUGH_WINDOW_HOURS`, `GRAPH_PASS_THROUGH_AMOUNT_TOLERANCE`, `GRAPH_HIGH_VELOCITY_WINDOW_HOURS`, `GRAPH_HIGH_VELOCITY_TRANSFER_THRESHOLD`, and `GRAPH_HIGH_VELOCITY_AMOUNT_THRESHOLD`; restart the backend to apply them. The CSV bounds can be changed with `CSV_MAX_FILE_BYTES` and `CSV_MAX_ROWS`, subject to hard safety ceilings.
+
+Pattern findings are deterministic evidence and do **not** add to the fused score. AI scoring retains the existing transaction 40%, behavioral anomaly 20%, and GNN 40% weights. Missing model scores remain null and are not treated as zero; available components are reweighted. Scores and patterns are investigative signals, not proof of wrongdoing. Graph search caps and AI model errors are reported in the analysis metadata.
+
+The network view preserves one graph edge per analyzed transfer, even for repeated transfers between the same accounts. Re-uploaded transaction IDs remain rejected as new ledger inserts; when the uploaded details exactly match a saved transaction, its stored assessment is reused to rebuild graph findings. A reused ID with conflicting transfer details is excluded. The view colors transfers with pattern evidence, allows account/transfer selection, and supports account search, pattern type, and AI risk-range filters. Large drawings are visually capped at 300 nodes and 1,000 edges for responsiveness; the analysis report and JSON export retain the full analyzed graph.
+
+### Analysis API
+
+All paths below are relative to `/api`:
+
+- `POST /analysis/upload` — multipart form field `file`; returns `202` and an analysis ID.
+- `GET /analysis?limit=20` — recent analysis jobs (limit 1–50).
+- `GET /analysis/{analysisId}` — status, progress, summary, thresholds, validation errors, and interpretation.
+- `GET /analysis/{analysisId}/graph?limit=1000&offset=0` — graph nodes and a bounded edge page (limit 1–5,000).
+- `GET /analysis/{analysisId}/patterns` and `/accounts` — findings and account summaries.
+- `GET /analysis/{analysisId}/export` — downloadable, versioned JSON with graph, findings, scores, thresholds, validation errors, processing statistics, and interpretation.
+
+Analysis rows and results use the existing PostgreSQL startup schema-initialization convention (`transaction_analyses` and `transaction_analysis_rows`); no destructive migration or change to existing transaction rows is required. A server restart marks queued/in-progress jobs as interrupted rather than presenting them as successful. Uploads are bounded and AI assessment is performed in small concurrent batches; invalid rows do not enter the transaction ledger.
+
+### Run and verify
+
+Start PostgreSQL, the AI service, backend, and frontend using the commands in [How to Run, Test, and Verify Locally](#6-how-to-run-test-and-verify-locally). Then open **Network Explorer**, select the CSV, and choose **Upload and analyze**. To upload from PowerShell:
+
+```powershell
+curl.exe -X POST http://127.0.0.1:3000/api/analysis/upload -F "file=@C:\path\to\transactions.csv"
+```
+
+Run the backend checks with `cd backend; npm run build; npm test`, and the frontend checks with `cd frontend; npm run build; npm run lint`.
 
 ---
 

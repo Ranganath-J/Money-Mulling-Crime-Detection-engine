@@ -1,7 +1,9 @@
 import { Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { NetworkExplorerPage } from './pages/NetworkExplorerPage'
 import { PendingPage } from './pages/PendingPage'
+import { TransactionsPage } from './pages/TransactionsPage'
 
 function App() {
   return (
@@ -10,21 +12,11 @@ function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route
           path="/transactions"
-          element={
-            <PendingPage
-              title="Live Transactions"
-              description="Review incoming transactions and their available risk evidence."
-            />
-          }
+          element={<TransactionsPage />}
         />
         <Route
           path="/network"
-          element={
-            <PendingPage
-              title="Network Explorer"
-              description="Explore account relationships and backend-confirmed suspicious patterns."
-            />
-          }
+          element={<NetworkExplorerPage />}
         />
         <Route
           path="/cases"

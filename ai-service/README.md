@@ -129,7 +129,7 @@ python -m pytest tests/ -v
 ## 5. Integration Guide for Backend & Frontend
 
 ### Frontend / Backend Integration Workflow
-1. The frontend or Node.js backend sends transactions to the pipeline.
-2. The Node.js backend calls `POST /predict/transaction`, `POST /predict/anomaly`, and `POST /predict/gnn` synchronously with a 5-second bounded timeout.
+1. The React frontend submits transactions to the Node.js backend.
+2. The Node.js backend calls `POST /predict/transaction`, `POST /predict/anomaly`, and `POST /predict/gnn` concurrently with bounded timeouts.
 3. If an AI endpoint is unreachable or returns `status: "unavailable"`, the backend safely records `componentScores[model]: null` (never 0), applies rule fallback, and proceeds without crashing.
 4. When risk exceeds threshold ($\ge 75$), the backend triggers case creation and emits Socket.IO updates to the React dashboard.

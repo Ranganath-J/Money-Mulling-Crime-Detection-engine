@@ -13,7 +13,7 @@ export function PageHeader({ title, description }: PageHeaderProps) {
       </div>
       <div className="contract-badge">
         <span aria-hidden="true" className="service-dot" />
-        Awaiting API contract
+        Live service health in top bar
       </div>
     </div>
   )

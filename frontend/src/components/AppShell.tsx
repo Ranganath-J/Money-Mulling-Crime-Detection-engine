@@ -1,5 +1,7 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { apiRequest } from '../lib/apiClient'
+import type { ServiceStatus } from '../types/api'
 import '../App.css'
 
 const navigation = [
@@ -68,7 +70,26 @@ function NavIcon({ name }: { name: (typeof navigation)[number]['icon'] }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null)
   const location = useLocation()
+  useEffect(() => {
+    let active = true
+    const refreshStatus = async () => {
+      try {
+        const result = await apiRequest<ServiceStatus>('/status')
+        if (active) setServiceStatus(result)
+      } catch {
+        if (active) setServiceStatus(null)
+      }
+    }
+    void refreshStatus()
+    const interval = window.setInterval(() => void refreshStatus(), 10_000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
+
   const currentPage = navigation.find(({ path }) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path),
   )?.label ?? 'Page'
@@ -115,7 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="sidebar-footer">
           <strong>Investigator workspace</strong>
-          Evidence-led review · Data source not connected
+          {serviceStatus?.database === 'ok' ? 'PostgreSQL connected' : 'Database unavailable'}
         </div>
       </aside>
 
@@ -136,8 +157,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             Workspace <span aria-hidden="true">/</span> <strong>{currentPage}</strong>
           </div>
           <div className="service-indicator">
-            <span aria-hidden="true" className="service-dot" />
-            Backend contract pending
+            <span aria-hidden="true" className={`service-dot ${serviceStatus?.database === 'ok' && serviceStatus.aiService !== 'unavailable' ? 'is-online' : 'is-offline'}`} />
+            {serviceStatus?.database === 'ok' && serviceStatus.aiService !== 'unavailable'
+              ? 'Services connected'
+              : 'Services unavailable'}
           </div>
         </header>
         <main className="main-content">{children}</main>
